@@ -218,7 +218,114 @@ async function addBook(bookUrl, metadata) {
   }
 }
 
+/**
+ * Ajoute un livre à la bibliothèque depuis une URL de téléchargement direct
+ */
+async function addBookFromUrl(downloadUrl, metadata) {
+  try {
+    console.log(`📥 Téléchargement depuis: ${downloadUrl}`);
+    
+    // 1. Télécharge le fichier depuis l'URL fournie
+    const epubResponse = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 60000, // 60 secondes
+      maxContentLength: 50 * 1024 * 1024, // Max 50MB
+      maxRedirects: 5
+    });
+    
+    // 2. Vérifie le Content-Type
+    const contentType = epubResponse.headers['content-type'];
+    console.log(`📄 Content-Type: ${contentType}`);
+    
+    if (contentType && contentType.includes('text/html')) {
+      throw new Error('Le lien fourni mène vers une page HTML, pas un fichier EPUB. Vérifiez que vous avez copié le bon lien de téléchargement.');
+    }
+    
+    const epubBuffer = Buffer.from(epubResponse.data);
+    console.log(`✅ EPUB téléchargé: ${(epubBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+    
+    // 3. Vérifie que c'est un fichier ZIP (EPUB = ZIP)
+    const fileSignature = epubBuffer.toString('hex', 0, 4);
+    if (fileSignature !== '504b0304') { // Signature ZIP : PK..
+      throw new Error('Le fichier téléchargé n\'est pas un EPUB valide (signature ZIP manquante).');
+    }
+    
+    // 4. Génère un nom de fichier unique
+    const sanitizedTitle = (metadata?.title || 'book')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .substring(0, 50);
+    const filename = `${sanitizedTitle}-${Date.now()}.epub`;
+    
+    // 5. Vérifie les doublons
+    const { data: existingBooks } = await supabase
+      .from('books')
+      .select('filename, title')
+      .ilike('title', `%${metadata?.title || ''}%`);
+    
+    if (existingBooks && existingBooks.length > 0) {
+      return {
+        success: false,
+        message: 'Livre déjà dans la bibliothèque',
+        existing: existingBooks[0]
+      };
+    }
+    
+    // 6. Upload sur Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('epubs')
+      .upload(filename, epubBuffer, {
+        contentType: 'application/epub+zip',
+        upsert: false
+      });
+    
+    if (uploadError) {
+      throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+    
+    console.log(`☁️ Uploadé sur Supabase: ${filename}`);
+    
+    // 7. Crée l'entrée dans la table books
+    const { data: bookData, error: bookError } = await supabase
+      .from('books')
+      .insert({
+        title: metadata?.title || 'Sans titre',
+        author: metadata?.author || null,
+        filename: filename,
+        cover_url: null,
+        file_size: epubBuffer.length,
+        language: metadata?.language || null,
+        year: metadata?.year ? parseInt(metadata.year) : null
+      })
+      .select()
+      .single();
+    
+    if (bookError) {
+      // Supprime le fichier uploadé si l'insertion échoue
+      await supabase.storage.from('epubs').remove([filename]);
+      throw new Error(`Database insert failed: ${bookError.message}`);
+    }
+    
+    console.log(`✅ Livre ajouté à la base: ${bookData.title}`);
+    
+    return {
+      success: true,
+      message: 'Livre ajouté avec succès',
+      book: bookData
+    };
+    
+  } catch (error) {
+    console.error('Erreur lors de l\'ajout depuis URL:', error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   searchBooks,
-  addBook
+  addBook,
+  addBookFromUrl
 };
