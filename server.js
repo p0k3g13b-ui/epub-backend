@@ -8,133 +8,140 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*', // À configurer pour ton GitHub Pages
-  credentials: true
+origin: process.env.FRONTEND_URL || '*', // À configurer pour ton GitHub Pages
+credentials: true
 }));
 app.use(express.json());
 
 // Route de test
 app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'EPUB Backend API',
-    endpoints: {
-      search: 'POST /api/search',
-      addBook: 'POST /api/add-book',
-      health: 'GET /api/health'
-    }
-  });
+res.json({ 
+status: 'ok', 
+message: 'EPUB Backend API',
+endpoints: {
+search: 'POST /api/search',
+addBook: 'POST /api/add-book',
+health: 'GET /api/health'
+}
+});
 });
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 // Endpoint de recherche
 app.post('/api/search', async (req, res) => {
-  try {
-    const { query } = req.body;
-    
-    if (!query || query.trim() === '') {
-      return res.status(400).json({ 
-        error: 'Query parameter is required' 
-      });
-    }
-    
-    console.log(`🔍 Recherche: "${query}"`);
-    
-    const results = await searchBooks(query);
-    
-    console.log(`✅ ${results.length} résultats trouvés`);
-    
-    res.json({ 
-      success: true, 
-      results,
-      count: results.length 
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur recherche:', error);
-    res.status(500).json({ 
-      error: 'Search failed', 
-      message: error.message 
-    });
-  }
+try {
+const { query } = req.body;
+
+if (!query || query.trim() === '') {
+return res.status(400).json({ 
+error: 'Query parameter is required' 
+});
+}
+
+console.log(`🔍 Recherche: "${query}"`);
+
+const results = await searchBooks(query);
+
+console.log(`✅ ${results.length} résultats trouvés`);
+
+res.json({ 
+success: true, 
+results,
+count: results.length 
+});
+
+} catch (error) {
+console.error('❌ Erreur recherche:', error);
+res.status(500).json({ 
+error: 'Search failed', 
+message: error.message 
+});
+}
 });
 
 // Endpoint d'ajout de livre
 app.post('/api/add-book', async (req, res) => {
-  try {
-    const { bookUrl, metadata } = req.body;
-    
-    if (!bookUrl) {
-      return res.status(400).json({ 
-        error: 'bookUrl is required' 
-      });
-    }
-    
-    console.log(`📥 Ajout du livre: ${metadata?.title || 'Sans titre'}`);
-    
-    const result = await addBook(bookUrl, metadata);
-    
-    if (result.success) {
-      console.log(`✅ Livre ajouté: ${result.book.title}`);
-      res.json(result);
-    } else {
-      console.log(`⚠️ ${result.message}`);
-      res.status(409).json(result); // 409 Conflict pour doublon
-    }
-    
-  } catch (error) {
-    console.error('❌ Erreur ajout:', error);
-    res.status(500).json({ 
-      error: 'Failed to add book', 
-      message: error.message 
-    });
-  }
+try {
+const { bookUrl, metadata } = req.body;
+
+if (!bookUrl) {
+return res.status(400).json({ 
+error: 'bookUrl is required' 
+});
+}
+
+console.log(`📥 Ajout du livre: ${metadata?.title || 'Sans titre'}`);
+
+const result = await addBook(bookUrl, metadata);
+
+if (result.success) {
+console.log(`✅ Livre ajouté: ${result.book.title}`);
+res.json(result);
+} else {
+console.log(`⚠️ ${result.message}`);
+res.status(409).json(result); // 409 Conflict pour doublon
+}
+
+} catch (error) {
+console.error('❌ Erreur ajout:', error);
+res.status(500).json({ 
+error: 'Failed to add book', 
+message: error.message 
+});
+}
 });
 
 // Endpoint d'ajout de livre depuis URL
 app.post('/api/add-book-from-url', async (req, res) => {
-  try {
-    const { downloadUrl, metadata } = req.body;
-    
-    if (!downloadUrl) {
-      return res.status(400).json({ 
-        error: 'downloadUrl is required' 
-      });
-    }
-    
-    console.log(`📥 Ajout depuis URL: ${metadata?.title || 'Sans titre'}`);
-    console.log(`🔗 URL: ${downloadUrl}`);
-    
-    const result = await addBookFromUrl(downloadUrl, metadata);
-    
-    if (result.success) {
-      console.log(`✅ Livre ajouté: ${result.book.title}`);
-      res.json(result);
-    } else {
-      console.log(`⚠️ ${result.message}`);
-      res.status(409).json(result); // 409 Conflict pour doublon
-    }
-    
-  } catch (error) {
-    console.error('❌ Erreur ajout depuis URL:', error);
-    res.status(500).json({ 
-      error: 'Failed to add book from URL', 
-      message: error.message 
-    });
-  }
+try {
+const { downloadUrl, metadata, userId } = req.body;
+
+if (!downloadUrl) {
+return res.status(400).json({ 
+error: 'downloadUrl is required' 
+});
+}
+
+if (!userId) {
+return res.status(400).json({ 
+error: 'userId is required' 
+});
+}
+
+console.log(`📥 Ajout depuis URL: ${metadata?.title || 'Sans titre'}`);
+console.log(`🔗 URL: ${downloadUrl}`);
+console.log(`👤 User: ${userId}`);
+
+const result = await addBookFromUrl(downloadUrl, metadata, userId);
+
+if (result.success) {
+console.log(`✅ Livre ajouté pour l'utilisateur ${userId}`);
+res.json(result);
+} else {
+console.log(`⚠️ ${result.message}`);
+res.status(409).json(result); // 409 Conflict si déjà dans la biblio
+}
+
+} catch (error) {
+console.error('❌ Erreur ajout depuis URL:', error);
+res.status(500).json({ 
+error: 'Failed to add book from URL', 
+message: error.message 
+});
+}
 });
 
 // Gestion des erreurs 404
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+res.status(404).json({ error: 'Endpoint not found' });
 });
 
 // Démarrage du serveur
 app.listen(PORT, () => {
-  console.log(`🚀 Backend démarré sur le port ${PORT}`);
-  console.log(`📡 Frontend autorisé: ${process.env.FRONTEND_URL || '*'}`);
+console.log(`🚀 Backend démarré sur le port ${PORT}`);
+console.log(`📡 Frontend autorisé: ${process.env.FRONTEND_URL || '*'}`);
 });
