@@ -26,85 +26,110 @@ async function searchBooks(query) {
     
     const $ = cheerio.load(response.data);
     const results = [];
+    const seenMd5 = new Set(); // Pour éviter les doublons
     
     console.log("🔍 Début du parsing HTML");
     
-    // Cherche les résultats (adapte les sélecteurs selon la structure HTML réelle)
+    // Cherche les résultats - seulement les liens qui contiennent des images
     $('a[href*="/md5/"]').each((i, element) => {
       const $elem = $(element);
       const href = $elem.attr('href');
       
-      // DEBUG: Affiche la structure HTML de chaque résultat
-      if (i < 2) { // Affiche seulement les 2 premiers pour ne pas polluer les logs
-        console.log(`\n📋 Résultat #${i}:`);
-        console.log("HTML complet:", $elem.html().substring(0, 500) + "...");
-        console.log("Images trouvées:", $elem.find('img').length);
-        $elem.find('img').each((imgIndex, img) => {
-          console.log(`  Image ${imgIndex}:`, $(img).attr('src'));
-        });
+      // Extrait le MD5 pour éviter les doublons
+      const md5Match = href.match(/\/md5\/([a-f0-9]+)/);
+      const md5 = md5Match ? md5Match[1] : null;
+      
+      // Si déjà traité ce livre, skip
+      if (md5 && seenMd5.has(md5)) {
+        return; // continue
       }
       
-      // Extrait les métadonnées depuis la structure HTML
-      const title = $elem.find('h3, .title').first().text().trim() || 
-                    $elem.text().trim().split('\n')[0];
-      
-      // Cherche l'auteur (souvent dans un élément proche)
-      const author = $elem.find('.author, .italic').first().text().trim() ||
-                     $elem.parent().find('.author').first().text().trim();
-      
-      // Cherche d'autres infos
-      const year = $elem.find('.year').text().trim() || '';
-      const language = $elem.find('.language').text().trim() || '';
-      const fileSize = $elem.find('.size').text().trim() || '';
-      
-      // Cherche l'image de couverture - plusieurs méthodes
+      // Cherche l'image de couverture
       let coverUrl = null;
+      const $img = $elem.find('img').first();
       
-      // Méthode 1: img avec src contenant "covers"
-      let $img = $elem.find('img[src*="covers"]').first();
       if ($img.length > 0) {
-        coverUrl = $img.attr('src');
-        console.log(`✅ Couverture trouvée (méthode 1): ${coverUrl}`);
-      }
-      
-      // Méthode 2: toute image
-      if (!coverUrl) {
-        $img = $elem.find('img').first();
-        if ($img.length > 0) {
-          coverUrl = $img.attr('src');
-          console.log(`✅ Couverture trouvée (méthode 2): ${coverUrl}`);
+        coverUrl = $img.attr('src') || $img.attr('data-src');
+        
+        // Si l'URL est relative, la rendre absolue
+        if (coverUrl && !coverUrl.startsWith('http')) {
+          coverUrl = `https://fr.annas-archive.org${coverUrl}`;
         }
       }
       
-      // Méthode 3: cherche dans data-src (lazy loading)
+      // Si ce lien n'a pas d'image, on cherche dans le parent
       if (!coverUrl) {
-        $img = $elem.find('img[data-src]').first();
-        if ($img.length > 0) {
-          coverUrl = $img.attr('data-src');
-          console.log(`✅ Couverture trouvée (méthode 3 - data-src): ${coverUrl}`);
+        const $parent = $elem.parent();
+        const $siblingImg = $parent.find('img').first();
+        if ($siblingImg.length > 0) {
+          coverUrl = $siblingImg.attr('src') || $siblingImg.attr('data-src');
+          if (coverUrl && !coverUrl.startsWith('http')) {
+            coverUrl = `https://fr.annas-archive.org${coverUrl}`;
+          }
         }
       }
       
-      if (!coverUrl) {
-        console.log(`❌ Aucune couverture trouvée pour: ${title}`);
+      // Extrait le titre - depuis l'élément ou ses voisins
+      let title = '';
+      
+      // Méthode 1: titre dans le lien lui-même
+      const titleInLink = $elem.text().trim();
+      if (titleInLink && titleInLink.length > 3 && titleInLink.length < 300) {
+        title = titleInLink;
       }
       
-      // Si l'URL est relative, la rendre absolue
-      if (coverUrl && !coverUrl.startsWith('http')) {
-        coverUrl = `https://fr.annas-archive.org${coverUrl}`;
+      // Méthode 2: titre dans un élément h3 à proximité
+      if (!title) {
+        const $h3 = $elem.parent().find('h3').first();
+        if ($h3.length > 0) {
+          title = $h3.text().trim();
+        }
+      }
+      
+      // Méthode 3: data-content dans le fallback cover
+      if (!title) {
+        const $fallback = $elem.find('[data-content]').first();
+        if ($fallback.length > 0) {
+          title = $fallback.attr('data-content');
+        }
+      }
+      
+      // Si toujours pas de titre, skip ce résultat
+      if (!title) {
+        return;
+      }
+      
+      // Cherche l'auteur dans les éléments proches
+      let author = '';
+      const $authorElem = $elem.parent().find('[data-content]').eq(1); // Deuxième data-content = auteur
+      if ($authorElem.length > 0) {
+        author = $authorElem.attr('data-content');
+      }
+      
+      // Cherche d'autres métadonnées
+      const $parent = $elem.parent().parent(); // Remonte de 2 niveaux
+      const year = $parent.find('.year').text().trim() || '';
+      const language = $parent.find('.language').text().trim() || '';
+      const fileSize = $parent.find('.size').text().trim() || '';
+      
+      // Marque ce MD5 comme traité
+      if (md5) {
+        seenMd5.add(md5);
       }
       
       if (title && href) {
         results.push({
-          title: title.substring(0, 200), // Limite la longueur
+          title: title.substring(0, 200),
           author: author || 'Auteur inconnu',
           year: year,
           language: language || 'fr',
           fileSize: fileSize,
-          coverUrl: coverUrl, // URL de la couverture
+          coverUrl: coverUrl,
           bookUrl: href.startsWith('http') ? href : `https://fr.annas-archive.org${href}`,
           source: 'annas-archive'
         });
+        
+        console.log(`✅ Livre ajouté: ${title.substring(0, 50)}... | Couverture: ${coverUrl ? 'Oui' : 'Non'}`);
       }
     });
     
