@@ -27,10 +27,22 @@ async function searchBooks(query) {
     const $ = cheerio.load(response.data);
     const results = [];
     
+    console.log("🔍 Début du parsing HTML");
+    
     // Cherche les résultats (adapte les sélecteurs selon la structure HTML réelle)
     $('a[href*="/md5/"]').each((i, element) => {
       const $elem = $(element);
       const href = $elem.attr('href');
+      
+      // DEBUG: Affiche la structure HTML de chaque résultat
+      if (i < 2) { // Affiche seulement les 2 premiers pour ne pas polluer les logs
+        console.log(`\n📋 Résultat #${i}:`);
+        console.log("HTML complet:", $elem.html().substring(0, 500) + "...");
+        console.log("Images trouvées:", $elem.find('img').length);
+        $elem.find('img').each((imgIndex, img) => {
+          console.log(`  Image ${imgIndex}:`, $(img).attr('src'));
+        });
+      }
       
       // Extrait les métadonnées depuis la structure HTML
       const title = $elem.find('h3, .title').first().text().trim() || 
@@ -45,15 +57,41 @@ async function searchBooks(query) {
       const language = $elem.find('.language').text().trim() || '';
       const fileSize = $elem.find('.size').text().trim() || '';
       
-      // Cherche l'image de couverture
+      // Cherche l'image de couverture - plusieurs méthodes
       let coverUrl = null;
-      const $img = $elem.find('img[src*="covers"]').first();
+      
+      // Méthode 1: img avec src contenant "covers"
+      let $img = $elem.find('img[src*="covers"]').first();
       if ($img.length > 0) {
         coverUrl = $img.attr('src');
-        // Si l'URL est relative, la rendre absolue
-        if (coverUrl && !coverUrl.startsWith('http')) {
-          coverUrl = `https://fr.annas-archive.org${coverUrl}`;
+        console.log(`✅ Couverture trouvée (méthode 1): ${coverUrl}`);
+      }
+      
+      // Méthode 2: toute image
+      if (!coverUrl) {
+        $img = $elem.find('img').first();
+        if ($img.length > 0) {
+          coverUrl = $img.attr('src');
+          console.log(`✅ Couverture trouvée (méthode 2): ${coverUrl}`);
         }
+      }
+      
+      // Méthode 3: cherche dans data-src (lazy loading)
+      if (!coverUrl) {
+        $img = $elem.find('img[data-src]').first();
+        if ($img.length > 0) {
+          coverUrl = $img.attr('data-src');
+          console.log(`✅ Couverture trouvée (méthode 3 - data-src): ${coverUrl}`);
+        }
+      }
+      
+      if (!coverUrl) {
+        console.log(`❌ Aucune couverture trouvée pour: ${title}`);
+      }
+      
+      // Si l'URL est relative, la rendre absolue
+      if (coverUrl && !coverUrl.startsWith('http')) {
+        coverUrl = `https://fr.annas-archive.org${coverUrl}`;
       }
       
       if (title && href) {
