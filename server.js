@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { searchBooks, addBook } = require('./scraper');
+const { searchBooks, addBook, addBookFromUrl } = require('./scraper');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -90,6 +90,39 @@ app.post('/api/add-book', async (req, res) => {
     console.error('❌ Erreur ajout:', error);
     res.status(500).json({ 
       error: 'Failed to add book', 
+      message: error.message 
+    });
+  }
+});
+
+// Endpoint d'ajout de livre depuis URL
+app.post('/api/add-book-from-url', async (req, res) => {
+  try {
+    const { downloadUrl, metadata } = req.body;
+    
+    if (!downloadUrl) {
+      return res.status(400).json({ 
+        error: 'downloadUrl is required' 
+      });
+    }
+    
+    console.log(`📥 Ajout depuis URL: ${metadata?.title || 'Sans titre'}`);
+    console.log(`🔗 URL: ${downloadUrl}`);
+    
+    const result = await addBookFromUrl(downloadUrl, metadata);
+    
+    if (result.success) {
+      console.log(`✅ Livre ajouté: ${result.book.title}`);
+      res.json(result);
+    } else {
+      console.log(`⚠️ ${result.message}`);
+      res.status(409).json(result); // 409 Conflict pour doublon
+    }
+    
+  } catch (error) {
+    console.error('❌ Erreur ajout depuis URL:', error);
+    res.status(500).json({ 
+      error: 'Failed to add book from URL', 
       message: error.message 
     });
   }
