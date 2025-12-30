@@ -45,6 +45,17 @@ async function searchBooks(query) {
       const language = $elem.find('.language').text().trim() || '';
       const fileSize = $elem.find('.size').text().trim() || '';
       
+      // Cherche l'image de couverture
+      let coverUrl = null;
+      const $img = $elem.find('img[src*="covers"]').first();
+      if ($img.length > 0) {
+        coverUrl = $img.attr('src');
+        // Si l'URL est relative, la rendre absolue
+        if (coverUrl && !coverUrl.startsWith('http')) {
+          coverUrl = `https://fr.annas-archive.org${coverUrl}`;
+        }
+      }
+      
       if (title && href) {
         results.push({
           title: title.substring(0, 200), // Limite la longueur
@@ -52,6 +63,7 @@ async function searchBooks(query) {
           year: year,
           language: language || 'fr',
           fileSize: fileSize,
+          coverUrl: coverUrl, // URL de la couverture
           bookUrl: href.startsWith('http') ? href : `https://fr.annas-archive.org${href}`,
           source: 'annas-archive'
         });
@@ -296,7 +308,7 @@ async function addBookFromUrl(downloadUrl, metadata) {
         title: metadata?.title || 'Sans titre',
         author: metadata?.author || null,
         filename: filename,
-        cover_url: null,
+        cover_url: metadata?.coverUrl || null, // URL de la couverture
         file_size: epubBuffer.length,
         language: metadata?.language || null,
         year: metadata?.year ? parseInt(metadata.year) : null
